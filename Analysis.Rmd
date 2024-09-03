@@ -1,0 +1,999 @@
+---
+title: "Project 1"
+author: "Rohan.P| Mithil.G| Shiva Sai.V| Koushik.K"
+date: "2023-04-22"
+output: html_document
+---
+
+
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(warning = FALSE)
+
+library(corrplot)
+library(caTools)
+library(readxl)
+library(dplyr)
+library(ggplot2)
+library(corrgram)
+library(corrplot)
+library(caTools)
+library(patchwork)
+library(randomForest)
+library(gam)
+library(boot)
+library (pls)
+library (gbm)
+library(glmnet)
+library(e1071)
+
+set.seed(365)
+results_model = data.frame(matrix(nrow=0, ncol=3))
+colnames(results_model) = c("Model_Name", "Train_MSE", "Test_MSE")
+```
+
+# Health Data Prediction
+
+Loading data from the provided file in data.
+```{r, echo=FALSE}
+data <- read_xlsx("D:/UB/EAS 508 - Statistical Learning & Data Mining I/Assignments/Project 1/Health.xlsx")
+```
+```{r}
+head(data)
+summary(data)
+```
+
+
+Checking for missing data in every column
+```{r}
+any(is.na(data))
+```
+There is no missing data in the provided file. 
+
+
+
+## Plotting the data: respose vs every predictors and analysing using histogram
+
+### Plotting correlation plot and a column vs every other column
+```{r, echo=FALSE}
+corrplot.mixed(cor(data), order = 'AOE')
+pairs(data)
+```
+
+
+### Without scaling
+```{r, echo=FALSE}
+x1 = ggplot(data,aes(x=X1))+geom_histogram(bins=20,alpha=0.5,fill='blue')
+x2 = ggplot(data,aes(x=X2))+geom_histogram(bins=20,alpha=0.5,fill='blue')
+x3 = ggplot(data,aes(x=X3))+geom_histogram(bins=20,alpha=0.5,fill='blue')
+x4 = ggplot(data,aes(x=X4))+geom_histogram(bins=20,alpha=0.5,fill='blue')
+(x1 | x2) / (x3 | x4)
+```
+
+
+### After scaling the data
+```{r, echo=FALSE}
+X_std = rapply(data,scale,c("numeric","integer"),how="replace")
+x1 = ggplot(X_std,aes(x=X1))+geom_histogram(bins=20,alpha=0.5,fill='blue')
+x2 = ggplot(X_std,aes(x=X2))+geom_histogram(bins=20,alpha=0.5,fill='blue')
+x3 = ggplot(X_std,aes(x=X3))+geom_histogram(bins=20,alpha=0.5,fill='blue')
+x4 = ggplot(X_std,aes(x=X4))+geom_histogram(bins=20,alpha=0.5,fill='blue')
+(x1 | x2) / (x3 | x4)
+```
+
+
+```{r, echo=FALSE, include=FALSE}
+par(mfrow=c(2,2))
+x <- data$X1
+y <- data$X2+data$X3+data$X4+data$X5
+plot(x,y)
+log_y <- log(data$X2+data$X3+data$X4+data$X5)
+plot(x,log_y)
+sqrt_y <- sqrt(data$X2+data$X3+data$X4+data$X5)
+plot(x,sqrt_y)
+par(mfrow=c(1,1))
+```
+
+
+
+
+## Splitting the data randomly in the ratio 0.8
+```{r echo=FALSE} 
+set.seed(195)
+```
+```{r}
+rand_sample <- sample.split(X_std$X1, SplitRatio = 0.8)
+tr_data = subset(data, rand_sample == TRUE)
+test_data = subset(data, rand_sample == FALSE)
+```
+
+
+# Linear Model
+Fitting the linear model to our data: Multiple Linear Regression
+
+```{r}
+model <- lm(X1 ~ ., data = tr_data)
+summary(model)
+res <- residuals(model)
+res_df <- as.data.frame(res)
+head(res)
+par(mfrow=c(2,2))
+plot(model)
+par(mfrow=c(1,1))
+```
+
+```{r}
+#train_pred
+tr_pred = predict(model,tr_data)
+tr_results = cbind(tr_data$X1,tr_pred)
+colnames(tr_results) = c("actual","predicted")
+tr_results <- as.data.frame(tr_results)
+tr_mse <- mean((tr_results$actual - tr_results$predicted)^2)
+tr_ssr <- sum((tr_results$actual - tr_results$predicted)^2)
+tr_sst <- sum((mean(tr_data$X1) - tr_results$predicted)^2)
+tr_R2 <- 1 -(tr_ssr/tr_sst)
+```
+
+
+```{r, echo=FALSE}
+#test_pred
+pred = predict(model,test_data)
+results = cbind(test_data$X1,pred)
+colnames(results) = c("actual","predicted")
+results <- as.data.frame(results)
+head(results)
+mse <- mean((results$actual - results$predicted)^2)
+ssr <- sum((results$actual - results$predicted)^2)
+sst <- sum((mean(test_data$X1) - results$predicted)^2)
+R2 <- 1 -(ssr/sst)
+```
+
+```{r, echo=FALSE}
+results_model = rbind(results_model, data.frame(Model_Name='Linear Model', Train_MSE=tr_mse, Test_MSE=mse))
+```
+
+* **Linear Model**
+
+    * Train MSE : `r tr_mse`
+    * Test MSE : `r mse`
+    * R sq. : `r R2`
+
+&nbsp;
+&nbsp;
+
+# Polynomial Regression: With single predictor
+Lets try each predictor with polynomial degree.
+
+```{r}
+x2_mod <- lm(X1 ~ poly(X2,degree = 2), data = tr_data)
+summary(x2_mod)
+```
+None of the degrees is significant and Adjusted R^2^ is `r summary(x2_mod)$adj.r.squared*100`%
+
+&nbsp;
+```{r}
+x3_mod <- lm(X1 ~ poly(X3,degree = 2), data = tr_data)
+summary(x3_mod)
+```
+None of the degrees is significant and adjusted R^2^ is `r summary(x3_mod)$adj.r.squared*100`%
+
+&nbsp;
+```{r}
+X4_mod <- lm(X1 ~ poly(X4,degree = 2), data = tr_data)
+summary(X4_mod)
+```
+None of the degrees is significant and adjusted R^2^ is `r summary(X4_mod)$adj.r.squared*100`%
+
+&nbsp;
+```{r}
+x5_mod <- lm(X1 ~ poly(X5,degree = 2), data = tr_data)
+summary(x5_mod)
+```
+Looking at the P value degree 1 is statistically significant and adjusted R^2^ is `r summary(x5_mod)$adj.r.squared*100`%
+
+&nbsp;
+Polynomial Regression with single predictor did not work so well for the data.
+
+&nbsp;
+&nbsp;
+&nbsp;
+
+
+# Polynomial Regression
+Fitting the Polynomial model to our data: 
+
+```{r}
+x2 <- tr_data$X2
+log_X3 <- log(tr_data$X3)
+log_X5 <- log(tr_data$X5)
+log_X4 <- log(tr_data$X4)
+poly_model <- lm(X1 ~ X2 + poly(log_X3,log_X4,degree = 1) + poly(log_X5,degree = 3), data = tr_data)
+summary(poly_model)
+res_poly <- residuals(poly_model)
+res_df_poly <- as.data.frame(res)
+head(res_poly)
+par(mfrow=c(2,2))
+plot(poly_model)
+par(mfrow=c(1,1))
+```
+
+
+```{r}
+#train_pred
+tr_pred_poly = predict(poly_model,tr_data)
+tr_results_poly = cbind(tr_data$X1,tr_pred_poly)
+colnames(tr_results_poly) = c("actual","predicted")
+tr_results_poly <- as.data.frame(tr_results_poly)
+tr_mse_poly <- mean((tr_results_poly$actual - tr_results_poly$predicted)^2)
+tr_ssr_poly <- sum((tr_results_poly$actual - tr_results_poly$predicted)^2)
+tr_sst_poly <- sum((mean(tr_data$X1) - tr_results_poly$predicted)^2)
+tr_R2_poly <- 1 -(tr_ssr_poly/tr_sst_poly)
+```
+
+
+```{r}
+#test_pred
+test_pred_poly = predict(poly_model,new_data = test_data)
+test_results_poly = cbind(test_data$X1,test_pred_poly)
+colnames(test_results_poly) = c("actual","predicted")
+test_results_poly <- as.data.frame(test_results_poly)
+head(test_results_poly)
+mse_poly<- mean((test_results_poly$actual - test_results_poly$predicted)^2)
+ssr_poly <- sum((test_results_poly$actual - test_results_poly$predicted)^2)
+sst_poly <- sum((mean(test_data$X1) - test_results_poly$predicted)^2)
+R2_poly <- 1 -(ssr_poly/sst_poly)
+```
+
+```{r, echo=FALSE}
+results_model = rbind(results_model, data.frame(Model_Name='Polynomial Model', Train_MSE=tr_mse_poly, Test_MSE=mse_poly))
+```
+
+* **Polynomial Model**
+
+    * Train MSE : `r tr_mse_poly`
+    * Test MSE : `r mse_poly`
+    * R sq. : `r R2_poly`
+
+&nbsp;
+&nbsp;
+&nbsp;
+
+
+# Random forest
+Fitting the Random forest to our data:
+```{r}
+rf_model = randomForest(X1 ~ .,data = tr_data,mtry=4,importance =TRUE)
+rf_model
+summary(rf_model)
+importance(rf_model)
+varImpPlot(rf_model)
+rf_tr_pred <- predict(rf_model,data=tr_data)
+tr_mse_rf <- mean((rf_tr_pred - tr_data$X1)^2)
+rf_pred = predict(rf_model,newdata = test_data)
+mse_rf <- mean((rf_pred - test_data$X1)^2)
+plot(rf_model,data=tr_data)
+```
+&nbsp;
+Get variable importance from the model fit
+```{r}
+ImpData <- as.data.frame(importance(rf_model))
+ImpData$Var.Names <- row.names(ImpData)
+
+ggplot(ImpData, aes(x=Var.Names, y=`%IncMSE`)) +
+  geom_segment( aes(x=Var.Names, xend=Var.Names, y=0, yend=`%IncMSE`), color="blue") +
+  geom_point(aes(size = IncNodePurity), color="blue", alpha=0.8) +
+  #theme_light() +
+  #coord_flip() +
+  theme(
+    legend.position="bottom",
+    panel.grid.major.y = element_blank(),
+    panel.border = element_blank(),
+    axis.ticks.y = element_blank()
+  )
+```
+
+```{r, echo=FALSE}
+results_model = rbind(results_model, data.frame(Model_Name='Random Forest', Train_MSE=tr_mse_poly, Test_MSE=mse_poly))
+```
+
+* **Random Forest**
+
+    * Train MSE : `r tr_mse_rf`
+    * Test MSE : `r mse_rf`
+
+
+&nbsp;
+&nbsp;
+&nbsp;
+
+
+# GAM
+Fitting the GAM Model to our data:
+```{r}
+gam.m1 = gam(X1~s(X2,4)+s(X3,4)+s(X4,4)+s(X5,4), data = tr_data)
+gam.m2 = gam(X1~s(X2,2)+s(X3,2)+s(X4,5)+s(X5,5), data = tr_data)
+gam.m3 = gam(X1~s(X2,2)+ s(X3,2)+s(X4,2)+s(X5,5), data = tr_data)
+gam.m4 = gam(X1~lo(X2,X3,X4,X5,span=0.5), data = tr_data)
+par(mfrow = c(1,4))
+plot(gam.m3,se=T,col = 'blue')
+summary(gam.m1)
+summary(gam.m2)
+summary(gam.m3)
+summary(gam.m4)
+```
+&nbsp;
+AIC crierion for gam.m3 is smaller than that of gam.m2,gam.m1,gam.m4, hence we we will use gam.m3 for model building.
+```{r}
+anova(gam.m1,gam.m2,gam.m3,test="F")
+pred_tr_gam <- predict(gam.m3,data=tr_data)
+tr_mse_gam <- mean((pred_tr_gam - tr_data$X1)^2)
+pred_test_gam <- predict(gam.m3,newdata=test_data)
+mse_gam <- mean((pred_test_gam - test_data$X1)^2)
+ssr_gam <- sum((test_data$X1 - pred_test_gam)^2)
+sst_gam <- sum((mean(test_data$X1) - pred_test_gam)^2)
+R2_gam <- 1 -(ssr_gam/sst_gam)
+```
+
+```{r, echo=FALSE}
+results_model = rbind(results_model, data.frame(Model_Name='GAM', Train_MSE=tr_mse_gam, Test_MSE=mse_gam))
+```
+
+* **GAM**
+
+    * Train MSE : `r tr_mse_gam`
+    * Test MSE : `r mse_gam`
+    * R sq. : `r R2_gam`
+
+&nbsp;
+&nbsp;
+&nbsp;
+
+
+# GLM
+## LOOCV
+```{r}
+cv.error <- rep(0, 10)
+for (i in 1:10) {
+  glm.fit <- glm(X1 ~ X2 + poly(X3,i) + X4+poly(X5 , i), data = data)
+  cv.error[i] <- cv.glm(data , glm.fit)$delta [1]
+}
+cv.error
+```
+## 10-fold CV
+```{r}
+set.seed (99)
+cv.error.10 <- rep(0, 10)
+for (i in 1:10) {
+  glm.fit <- glm(X1 ~ X2 + poly(X3,i) + X4+poly(X5 , i), data = data)
+  cv.error.10[i] <- cv.glm(data , glm.fit , K = 10)$delta [1]
+}
+cv.error.10
+```
+
+## 5_fold CV
+```{r}
+set.seed (99)
+cv.error.5 <- rep(0, 5)
+for (i in 1:10) {
+  glm.fit <- glm(X1 ~ X2 + poly(X3,i) + X4+poly(X5 , i), data = data)
+  cv.error.5[i] <- cv.glm(data , glm.fit , K = 5)$delta [1]
+}
+cv.error.5 
+```
+
+```{r, echo=FALSE}
+results_model = rbind(results_model, data.frame(Model_Name='GLM(LOOCV)', Train_MSE='2.60', Test_MSE=cv.error[1]))
+```
+
+&nbsp;
+&nbsp;
+&nbsp;
+
+
+# SVR
+Fitting the SVR Model to our data:
+```{r, echo=FALSE}
+set.seed(365)
+rand_sample <- sample.split(data$X1, SplitRatio = 0.8)
+tr_data = subset(data, rand_sample == TRUE)
+test_data = subset(data, rand_sample == FALSE)
+train_svr_d = data.frame(tr_data)
+
+sst = sum((tr_data$X1 - mean(tr_data$X1))^2)
+```
+
+```{r}
+descriptors_train_svr = tr_data[,! names(tr_data) %in% c("X1")]
+descriptors_test_svr = test_data[,! names(tr_data) %in% c("X1")]
+descriptors_train_svr = as.matrix(descriptors_train_svr)
+descriptors_test_svr = as.matrix(descriptors_test_svr)
+properties_train_svr = tr_data$X1
+properties_test_svr = test_data$X1
+```
+
+Finding the best model by tuning. Selecting values of epsilon from 0 to 1 at gap of 0.1, Cost from 1 to 10 at gap of 1, gamma from 0.1, 1, 5, 10, 100
+
+```{r}
+model_svr = tune(svm, properties_train_svr ~ descriptors_train_svr, ranges=list(epsilon=seq(0,1,0.1),                    cost=1:10, gamma=c(0.1, 1, 5, 10, 100)))
+best_model_svr = model_svr$best.model
+summary(best_model_svr)
+```
+Using the tuning parameters from the best model
+```{r}
+kernel = 'radial'
+cost = best_model_svr$cost
+gamma = best_model_svr$gamma
+epsilon = best_model_svr$epsilon
+
+svm_fit = svm(tr_data$X1 ~ ., data = tr_data, method = 'eps-regression', kernel = kernel, cost = cost,                gamma = gamma, epsilon = epsilon)  
+pred_train_svr = predict(svm_fit, data = descriptors_train_svr)
+pred_test_svr = predict(svm_fit, newdata = descriptors_test_svr)
+tr_mse_svr = mean((pred_train_svr - tr_data$X1)^2)
+mse_svr = mean((pred_test_svr - test_data$X1)^2)
+ssr_svr = sum((pred_train_svr - tr_data$X1)^2)
+R2_svr <- 1 -(ssr_svr/sst)
+```
+
+This model resulted in Train MSE : `r tr_mse_svr` &emsp; Test MSE : `r mse_svr` &emsp; R sq. : `r R2_svr`
+&nbsp;
+As this is not a good fit so tuning the model further manually to find the best model by changing cost, gamma and epsilon. This resulted in cost = 5   gamma = 5.5 and epsilon = 0.4 for radial kernel.
+
+```{r}
+kernel = 'radial'
+cost = 5
+gamma = 5.5
+epsilon = 0.4 
+
+svm_fit = svm(tr_data$X1 ~ ., data = tr_data, method = 'eps-regression', kernel = kernel, cost = cost,                gamma = gamma, epsilon = epsilon) 
+pred_train_svr = predict(svm_fit, data = descriptors_train_svr)
+pred_test_svr = predict(svm_fit, newdata = descriptors_test_svr)
+tr_mse_svr = mean((pred_train_svr - tr_data$X1)^2)
+mse_svr = mean((pred_test_svr - test_data$X1)^2)
+ssr_svr = sum((pred_train_svr - tr_data$X1)^2)
+R2_svr <- 1 -(ssr_svr/sst)
+```
+
+* **SVR**
+
+    * Train MSE : `r tr_mse_svr`
+    * Test MSE : `r mse_svr`
+    * R sq. : `r R2_svr`
+
+
+```{r, echo=FALSE}
+results_model = rbind(results_model, data.frame(Model_Name='SVR', Train_MSE=tr_mse_svr, Test_MSE=mse_svr))
+```
+
+```{r}
+results_model
+```
+
+##############################################################################################################################################################
+
+
+# Airfoil Self-Noise Data Set
+
+Loading data from the provided file in data.
+```{r}
+Pilot_data_set = read.table("D:/UB/EAS 508 - Statistical Learning & Data Mining I/Assignments/Project 1/airfoil_self_noise.dat", sep="\t")
+```
+
+#viewing the data set
+```{r}
+View(Pilot_data_set)
+```
+
+#Summary of the data set
+
+```{r}
+head(Pilot_data_set)
+summary(Pilot_data_set)
+```
+
+where:
+V1 =  Frequency, in Hertz.
+V2 =  The angle of attack, in degrees.
+V3 =  Chord length, in meters.
+V4 =  Free-stream velocity, in meters per second.
+V5 =  Suction side displacement thickness, in meters.
+V6 =  Scaled sound pressure level, in decibels.
+
+
+#Checking for missing data in every column
+```{r}
+any(is.na(Pilot_data_set))
+```
+There is no missing data in the provided file. 
+
+## Plotting the data: respose vs every predictors and analysing using plot
+
+### Plotting correlation plot and a column vs every other column
+```{r, echo=FALSE}
+cor_data = cor(Pilot_data_set)
+cor_data
+```
+
+This shows that V1,V2, V3, V5 has a strong negative correlation to V6 and V4 has positive correlation with V6. where V6 is our Response.
+```{r}
+library(corrplot)
+cor_data = cor(Pilot_data_set)
+corrplot.mixed(cor(Pilot_data_set), order = 'AOE')
+#corrplot(cor_data, method = 'color')
+```
+
+```{r}
+pairs(Pilot_data_set)
+```
+
+
+### Without scaling
+```{r}
+plot(Pilot_data_set$V1, Pilot_data_set$V6)
+plot(Pilot_data_set$V2, Pilot_data_set$V6)
+plot(Pilot_data_set$V3, Pilot_data_set$V6)
+plot(Pilot_data_set$V4, Pilot_data_set$V6)
+plot(Pilot_data_set$V5, Pilot_data_set$V6)
+
+```
+
+
+### After scaling
+```{r}
+scale_data <-as.data.frame(scale(Pilot_data_set))
+summary(scale_data)
+```
+
+```{r}
+plot(scale_data$V1, scale_data$V6)
+plot(scale_data$V2, scale_data$V6)
+plot(scale_data$V5, scale_data$V6)
+
+```
+
+```{r}
+plot(scale_data$V3, scale_data$V6)
+plot(scale_data$V4, scale_data$V6)
+```
+
+
+```{r}
+x = scale_data$V1+scale_data$V2+scale_data$V3+scale_data$V4+scale_data$V5
+plot(x, scale_data$V6)
+#abline(Mul_linear_fit, lwd = 3, col = "red")
+```
+
+The V3, V4 variable is stored as a numeric vector, so R has treated it as quantitative. However, since there are only a small number of possible
+values for V3, V4, one may prefer to treat it as a qualitative variable.
+
+#converting categorical/qualitative variables to quantitative
+
+```{r}
+scale_data$V4 <- as.factor(scale_data$V4)
+scale_data$V3 <- as.factor(scale_data$V3)
+```
+
+```{r}
+plot(scale_data$V4, scale_data$V6)
+plot(scale_data$V3, scale_data$V6)
+```
+
+```{r}
+boxplot(scale_data$V1)
+boxplot(scale_data$V2)
+boxplot(scale_data$V3)
+boxplot(scale_data$V4)
+boxplot(scale_data$V5)
+```
+
+From Boxplot we can clearly see that there are outliers.
+
+###Splitting the data set into Training and Test sets
+
+```{r}
+
+#make this example reproducible
+set.seed(1)
+#use 70% of dataset as training set and 30% as test set
+sample <- sample.split(scale_data$V6, SplitRatio = 0.7)
+train  <- subset(scale_data, sample == TRUE)
+test   <- subset(scale_data, sample == FALSE)
+```
+
+```{r}
+prop.table(table(train$V3))
+prop.table(table(test$V3))
+```
+we can see equal split of data sets....
+
+#Multi-linear Regression
+```{r}
+mul_linear_fit = lm(V6~., data = train)
+summary(mul_linear_fit)
+```
+Mul_linear_fit has a RSE of 0.7011; R2 = 0.4965(49%)
+
+```{r}
+par(mfrow = c(2,2))
+plot(mul_linear_fit)
+```
+residual plot shows that there are leverage points as wel
+
+#Removing Outliers and leverage points
+```{r}
+w <- abs(rstudent(mul_linear_fit)) < 3 & abs(cooks.distance(mul_linear_fit)) < 4/nrow(mul_linear_fit$model)
+LR_updated <- update(mul_linear_fit, weights=as.numeric(w))
+summary(LR_updated)
+```
+After Removing Outliers and leverage points in training model : RSE = 0.5577; R2 = 0.6405(64%)
+
+```{r}
+par(mfrow = c(2,2))
+plot(LR_updated)
+```
+
+```{r}
+test_result = predict(mul_linear_fit,train)
+predictions = test_result
+actual = train$V6
+mean((predictions - actual)^2)
+```
+
+
+```{r}
+test_result = predict(mul_linear_fit,test)
+predictions = test_result
+actual = test$V6
+mean((predictions - actual)^2)
+```
+Mul_linear regression has a test error = 0.476
+
+
+#LOOCV
+```{r}
+glm.fit <- glm (V6 ~ ., data = train)
+cv.err <- cv.glm(train , glm.fit)
+cv.err$delta
+```
+```{r}
+test_result = predict(glm.fit,test)
+predictions = test_result
+actual = test$V6
+mean((predictions - actual)^2)
+```
+#K=5 fold
+```{r}
+glm.fit <- glm (V6 ~ ., data = train)
+cv.err <- cv.glm(train , glm.fit, K = 5)
+cv.err$delta
+```
+#K=10 fold
+```{r}
+glm.fit <- glm (V6 ~ ., data = train)
+cv.err <- cv.glm(train , glm.fit, K = 10)
+cv.err$delta
+```
+
+#k=5 fold
+```{r}
+set.seed (1)
+cv.error.10 <- rep (0, 10)
+for (i in 1:10) {
+ glm.fit <- glm (V6 ~., data = train)
+ cv.error.10[i] <- cv.glm(train , glm.fit , K = 5)$delta[1]
+ }
+cv.error.10
+```
+
+#k = 10 fold
+```{r}
+set.seed (1)
+cv.error.10 <- rep (0, 10)
+for (i in 1:10) {
+ glm.fit <- glm (V6 ~ ., data = train)
+ cv.error.10[i] <- cv.glm(train , glm.fit , K = 10)$delta[1]
+ }
+cv.error.10
+```
+
+```{r}
+cv.error <- rep (0, 4)
+for (i in 1:4) {
+ glm.fit <- glm (V6 ~ poly (V2 , i), data = train)
+ cv.error[i] <- cv.glm (train , glm.fit)$delta[1]
+}
+cv.error
+```
+
+```{r}
+cv.error <- rep (0, 4)
+for (i in 1:4) {
+ glm.fit <- glm (V6 ~ poly (V3 , i), data = train)
+ cv.error[i] <- cv.glm (train , glm.fit)$delta[1]
+}
+cv.error
+```
+```{r}
+cv.error <- rep (0, 3)
+for (i in 1:3) {
+ glm.fit <- glm (V6 ~ poly (V4 , i), data = train)
+ cv.error[i] <- cv.glm (train , glm.fit)$delta[1]
+}
+cv.error
+```
+```{r}
+cv.error <- rep (0, 4)
+for (i in 1:4) {
+ glm.fit <- glm (V6 ~ poly (V5 , i), data = train)
+ cv.error[i] <- cv.glm(train , glm.fit)$delta[1]
+}
+cv.error
+```
+
+
+####Non-Linear Regression
+
+From cor values only V1, V3, V5 have strong impact so only considered them
+
+
+```{r}
+mul_non_linear = lm(V6 ~ V4+V2+V3+poly(V1,2,raw=T)+V5, data=train)
+summary(mul_non_linear)
+```
+Non-Linear Model:RSE = 0.6797, R2 = 0.53
+
+```{r}
+test_result_nl = predict(mul_non_linear,test)
+predictions = test_result_nl
+actual = test$V6
+mean((predictions - actual)^2)
+```
+non_linear_multiple_test error  = 0.55
+
+LOOCV
+```{r}
+library (boot)
+glm.fit <- glm (V6~V4+V2+V3+poly(V1,2,raw=T)+V5, data=train)
+cv.err <- cv.glm(train , glm.fit)
+cv.err$delta
+```
+LOOCV error = 0.503
+
+#k=5 fold
+```{r}
+set.seed (1)
+glm.fit <- glm (V6~V4+V2+V3+poly(V1,2,raw=T)+V5, data=train)
+cv.error <- cv.glm(train , glm.fit , K = 5)$delta[1]
+cv.error
+```
+
+#k = 10 fold
+```{r}
+set.seed (1)
+glm.fit <- glm (V6~V4+V2+V3+poly(V1,2,raw=T)+V5, data=train)
+cv.error <- cv.glm(train , glm.fit , K = 10)$delta[1]
+cv.error
+```
+#Ridge_regression
+
+```{r}
+x <- model.matrix (V6 ~ ., data = scale_data)[,-1]
+y <- scale_data$V6
+```
+
+
+```{r}
+set.seed (1)
+train <- sample (1:nrow(x),nrow(x)/2)
+test <- (-train)
+y.test <- y[test]
+```
+
+
+```{r}
+ridge.mod <- glmnet(x[train,], y[train], alpha = 0, thresh=1e-12)
+ridge.pred <- predict(ridge.mod,s=4,newx = x[test,])
+mean((ridge.pred-y.test)^2)
+```
+
+
+```{r}
+mean((mean(y[train])- y.test)^2)
+```
+
+
+```{r}
+ridge.pred <- predict (ridge.mod , s = 1e10 , newx = x[test , ])
+mean ((ridge.pred - y.test)^2)
+```
+
+
+```{r}
+ridge.pred <- predict (ridge.mod , s = 0, newx = x[test , ],exact = T, x = x[train , ], y = y[train])
+mean((ridge.pred - y.test)^2)
+```
+
+
+```{r}
+lm(y ~ x, subset = train)
+predict (ridge.mod , s = 0, exact = T, type = "coefficients",
+x = x[train , ], y = y[train])[1:6, ]
+```
+
+
+```{r}
+library(glmnet)
+set.seed (1)
+cv.out <- cv.glmnet(x[train, ], y[train], alpha = 0)
+plot (cv.out)
+bestlam <- cv.out$lambda.min
+bestlam
+```
+
+Best lambda = 0.0412
+```{r}
+ridge.pred <- predict (ridge.mod , s = bestlam ,
+newx = x[test , ])
+```
+
+
+```{r}
+mean((ridge.pred - y.test)^2)
+```
+Ridge Regression has a mean = 0.48
+
+```{r}
+out <- glmnet (x, y, alpha = 0)
+predict (out , type = "coefficients", s = bestlam)[1:6, ]
+```
+
+#LASSO_Regression
+```{r}
+lasso.mod <- glmnet (x[train , ], y[train], alpha = 1)
+plot (lasso.mod)
+```
+
+
+```{r}
+set.seed (1)
+cv.out <- cv.glmnet (x[train , ], y[train], alpha = 1)
+plot (cv.out)
+bestlam <- cv.out$lambda.min
+lasso.pred <- predict (lasso.mod , s = bestlam ,
+newx = x[test , ])
+mean ((lasso.pred - y.test)^2)
+```
+
+LAsso Regression has a mean = 0.481
+```{r}
+out <- glmnet (x, y, alpha = 1)
+lasso.coef <- predict (out , type = "coefficients",
+s = bestlam)[1:6, ]
+lasso.coef
+```
+
+PCR model
+```{r}
+#install.packages("pls")
+set.seed (2)
+pcr.fit <- pcr(V6 ~ ., data = scale_data , scale = TRUE ,validation = "CV")
+
+```
+
+
+```{r}
+summary(pcr.fit)
+```
+
+
+```{r}
+validationplot (pcr.fit , val.type = "MSEP")
+
+```
+
+
+```{r}
+set.seed (1)
+pcr.fit <- pcr(V6 ~., data = scale_data , subset = train ,scale = TRUE , validation = "CV")
+validationplot (pcr.fit , val.type = "MSEP")
+```
+
+
+```{r}
+pcr.pred <- predict (pcr.fit , x[test , ], ncomp = 5)
+mean((pcr.pred - y.test)^2)
+
+```
+
+PCR Test error = 0.479
+
+```{r}
+pcr.fit <- pcr(y ~ x, scale = TRUE , ncomp = 5)
+summary (pcr.fit)
+```
+
+
+#Bagging and Rando Forests
+
+```{r}
+library (randomForest)
+set.seed (1)
+bag.airfoil <- randomForest(V6 ~ .,data = scale_data,subset = train,mtry =5, importance = TRUE)
+bag.airfoil
+
+```
+
+
+```{r}
+yhat.bag <-predict(bag.airfoil,newdata = scale_data[-train , ])
+airfoil.test <- scale_data[-train , "V6"]
+plot(yhat.bag,airfoil.test)
+abline(0, 1)
+mean((yhat.bag - airfoil.test)^2)
+```
+
+MSE Test = 0.1101373 for mtry = 5
+```{r}
+importance(bag.airfoil)
+```
+Every variable is important if removed one variable also test error increases.
+```{r}
+bag.airfoil_2 <- randomForest(V6 ~ V1+V2+V3+V5,data = scale_data,subset = train,mtry =4, importance = TRUE)
+yhat.bag <-predict(bag.airfoil_2,newdata = scale_data[-train , ])
+airfoil.test <- scale_data[-train , "V6"]
+mean((yhat.bag - airfoil.test)^2)
+```
+See test error increased.
+```{r}
+varImpPlot(bag.airfoil)
+```
+
+
+```{r}
+bag.airfoil_1 <- randomForest(V6 ~ .,data = scale_data,subset = train,mtry =2, importance = TRUE)
+yhat.bag <-predict(bag.airfoil_1,newdata = scale_data[-train , ])
+airfoil.test <- scale_data[-train , "V6"]
+plot(yhat.bag,airfoil.test)
+abline(0, 1)
+mean((yhat.bag - airfoil.test)^2)
+```
+MSE Test = 0.1544284 for mtry = 2 and observed lowest MSE test for mtry=5
+
+```{r}
+bag.airfoil_3 <- randomForest(V6 ~ .,data = scale_data,subset = train,mtry =5,ntree = 50)
+yhat.bag <-predict(bag.airfoil_3,newdata = scale_data[-train , ])
+airfoil.test <- scale_data[-train , "V6"]
+mean((yhat.bag - airfoil.test)^2)
+```
+
+#BOOSTING
+```{r}
+set.seed (1)
+boost.airfoil <- gbm(V6 ~ ., data = scale_data[train , ],distribution = "gaussian", n.trees = 5000,interaction.depth = 4)
+summary (boost.airfoil)
+```
+
+
+```{r}
+yhat.boost <- predict (boost.airfoil,newdata = scale_data[-train , ],n.trees = 5000)
+mean((yhat.boost - airfoil.test)^2)
+```
+Boosting has an test error = 0.09058552.
+
+#Bayesian Additive Regression Trees
+
+```{r}
+library(BART)
+x <- scale_data[, 1:5]
+y <- scale_data[, "V6"]
+xtrain <- x[train , ]
+ytrain <- y[train]
+xtest <- x[-train , ]
+ytest <- y[-train]
+set.seed (1)
+bartfit <- gbart (xtrain , ytrain , x.test = xtest)
+yhat.bart <- bartfit$yhat.test.mean
+mean((ytest - yhat.bart)^2)
+```
+
